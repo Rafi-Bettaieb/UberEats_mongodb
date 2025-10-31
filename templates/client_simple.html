@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espace Client</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .notification-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 400px;
+        }
+        .cancelled-order {
+            opacity: 0.7;
+            background-color: #f8f9fa;
+        }
+        .order-card {
+            transition: all 0.3s;
+        }
+        .order-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .star-rating {
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        .star-rating .star {
+            color: #ddd;
+            transition: color 0.2s;
+        }
+        .star-rating .star:hover,
+        .star-rating .star.active {
+            color: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <span class="navbar-brand">👤 Client - {{ username }}</span>
+            <div class="d-flex">
+                <span class="navbar-text me-3" id="connectionStatus">🟢 Connecté</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Container pour les notifications -->
+    <div class="notification-container" id="notificationContainer"></div>
+
+    <!-- Modal pour noter le livreur -->
+    <div class="modal fade" id="ratingModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ratingModalTitle">Noter votre livreur</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="ratingContent">
+                        <p>Comment était votre expérience de livraison ?</p>
+                        <div class="star-rating text-center mb-3" id="starRating">
+                            <span class="star" data-rating="1">☆</span>
+                            <span class="star" data-rating="2">☆</span>
+                            <span class="star" data-rating="3">☆</span>
+                            <span class="star" data-rating="4">☆</span>
+                            <span class="star" data-rating="5">☆</span>
+                        </div>
+                        <div class="text-center">
+                            <small class="text-muted" id="ratingText">Sélectionnez une note</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="button" class="btn btn-primary" id="submitRating" disabled>Envoyer la note</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="mb-0">Mes Commandes</h4>
+                            <small class="text-muted">Vous pouvez annuler une commande tant qu'aucun livreur n'est assigné</small>
+                        </div>
+                        <button class="btn btn-primary" onclick="passerCommande()">
+                            🛒 Passer une commande
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="ordersList">
+                            {% for order in orders %}
+                            <div class="card order-card mb-3 
+                                {% if order.status == 'cancelled' %}cancelled-order{% endif %}" 
+                                id="order-{{ order.id }}">
+                                
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <div>
+                                                    <strong>Commande #{{ order.id }}</strong>
+                                                    <br>
+                                                    <span class="text-muted">{{ order.articles }}</span>
+                                                    <br>
+                                                    <small class="text-muted">
+                                                        Restaurant: {{ order.restaurant }}
+                                                        {% if order.assigned_driver %}
+                                                        <br>Livreur: {{ order.assigned_driver }}
+                                                        {% endif %}
+                                                        {% if order.client_rating %}
+                                                        <br>Votre note: 
+                                                        <span class="text-warning">
+                                                            {% for i in range(5) %}
+                                                                {% if i < order.client_rating|int %}⭐{% else %}☆{% endif %}
+                                                            {% endfor %}
+                                                            ({{ order.client_rating }}/5)
+                                                        </span>
+                                                        {% endif %}
+                                                    </small>
+                                                </div>
+                                                <div class="text-end">
+                                                    <span class="badge 
+                                                        {% if order.status == 'pending' %}bg-secondary
+                                                        {% elif order.status == 'ready' %}bg-warning
+                                                        {% elif order.status == 'assigned' %}bg-info
+                                                        {% elif order.status == 'delivered' %}bg-success
+                                                        {% elif order.status == 'cancelled' %}bg-danger
+                                                        {% else %}bg-dark{% endif %}">
+                                                        {{ order.status }}
+                                                    </span>
+                                                    <br>
+                                                    <small class="text-muted">
+                                                        {{ order.created_at if order.created_at else '' }}
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Bouton d'annulation -->
+                                            {% if order.status in ['pending', 'ready'] %}
+                                            <div class="mt-3">
+                                                <button class="btn btn-outline-danger btn-sm" 
+                                                        onclick="annulerCommande('{{ order.id }}')"
+                                                        id="btn-cancel-{{ order.id }}">
+                                                    ❌ Annuler la commande
+                                                </button>
+                                                <small class="text-muted ms-2">
+                                                    Vous pouvez annuler tant qu'aucun livreur n'est assigné
+                                                </small>
+                                            </div>
+                                            {% elif order.status == 'assigned' %}
+                                            <div class="mt-2">
+                                                <small class="text-warning">
+                                                    ⚠️ Impossible d'annuler: un livreur a été assigné
+                                                </small>
+                                            </div>
+                                            {% elif order.status == 'delivered' and not order.client_rating %}
+                                            <div class="mt-3">
+                                                <button class="btn btn-outline-warning btn-sm" 
+                                                        onclick="noterLivreur('{{ order.id }}', '{{ order.assigned_driver }}')">
+                                                    ⭐ Noter le livreur
+                                                </button>
+                                                <small class="text-muted ms-2">
+                                                    Aidez-nous à améliorer notre service
+                                                </small>
+                                            </div>
+                                            {% elif order.status == 'cancelled' %}
+                                            <div class="mt-2">
+                                                <small class="text-muted">
+                                                    ❌ Commande annulée
+                                                </small>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-center text-muted py-5">
+                                <h5>📭 Aucune commande</h5>
+                                <p>Cliquez sur "Passer une commande" pour commencer</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Instructions -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6>ℹ️ Instructions</h6>
+                    </div>
+                    <div class="card-body">
+                        <small>
+                            <strong>Statuts des commandes:</strong><br>
+                            • <span class="badge bg-secondary">pending</span> : En attente du restaurant<br>
+                            • <span class="badge bg-warning">ready</span> : Prête à être livrée<br>
+                            • <span class="badge bg-info">assigned</span> : Livreur assigné (annulation impossible)<br>
+                            • <span class="badge bg-success">delivered</span> : Livrée<br>
+                            • <span class="badge bg-danger">cancelled</span> : Annulée<br>
+                            <br>
+                            <strong>Notation:</strong> Vous pouvez noter le livreur après chaque livraison.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        let eventSource = null;
+        let currentRatingOrderId = null;
+        let currentRatingDriverId = null;
+        let selectedRating = 0;
+        
+        function passerCommande() {
+            fetch('/passer_commande', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(`✅ Commande #${data.order_id} passée avec succès!`, 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        showNotification('❌ Erreur: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showNotification('❌ Erreur de connexion', 'danger');
+                    console.error('Erreur:', error);
+                });
+        }
+        
+        function annulerCommande(orderId) {
+            if (!confirm(`Êtes-vous sûr de vouloir annuler la commande #${orderId} ?`)) {
+                return;
+            }
+            
+            fetch(`/annuler_commande/${orderId}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(`✅ Commande #${orderId} annulée avec succès`, 'success');
+                        updateOrderStatus(orderId, 'cancelled');
+                    } else {
+                        showNotification('❌ Erreur: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showNotification('❌ Erreur de connexion', 'danger');
+                    console.error('Erreur:', error);
+                });
+        }
+        
+        function noterLivreur(orderId, driverId) {
+            currentRatingOrderId = orderId;
+            currentRatingDriverId = driverId;
+            selectedRating = 0;
+            
+            // Réinitialiser les étoiles
+            document.querySelectorAll('#starRating .star').forEach(star => {
+                star.classList.remove('active');
+                star.textContent = '☆';
+            });
+            
+            document.getElementById('ratingText').textContent = 'Sélectionnez une note';
+            document.getElementById('submitRating').disabled = true;
+            
+            // Mettre à jour le titre du modal
+            document.getElementById('ratingModalTitle').textContent = `Noter ${driverId}`;
+            
+            // Afficher le modal
+            const ratingModal = new bootstrap.Modal(document.getElementById('ratingModal'));
+            ratingModal.show();
+        }
+        
+        function updateOrderStatus(orderId, newStatus) {
+            const orderElement = document.getElementById(`order-${orderId}`);
+            if (!orderElement) return;
+            
+            // Mettre à jour le badge de statut
+            const statusBadge = orderElement.querySelector('.badge');
+            if (statusBadge) {
+                statusBadge.textContent = newStatus;
+                statusBadge.className = 'badge ' + (
+                    newStatus === 'pending' ? 'bg-secondary' :
+                    newStatus === 'ready' ? 'bg-warning' :
+                    newStatus === 'assigned' ? 'bg-info' :
+                    newStatus === 'delivered' ? 'bg-success' :
+                    newStatus === 'cancelled' ? 'bg-danger' : 'bg-dark'
+                );
+            }
+            
+            // Mettre à jour les actions
+            const actionDiv = orderElement.querySelector('.mt-3') || orderElement.querySelector('.mt-2');
+            if (actionDiv) {
+                if (newStatus === 'cancelled') {
+                    actionDiv.innerHTML = '<small class="text-muted">❌ Commande annulée</small>';
+                    orderElement.classList.add('cancelled-order');
+                } else if (newStatus === 'assigned') {
+                    actionDiv.innerHTML = '<small class="text-warning">⚠️ Impossible d\'annuler: un livreur a été assigné</small>';
+                }
+            }
+        }
+        
+        // Initialisation du système de notation
+        document.addEventListener('DOMContentLoaded', function() {
+            // Gestion des clics sur les étoiles
+            document.querySelectorAll('#starRating .star').forEach(star => {
+                star.addEventListener('click', function() {
+                    const rating = parseInt(this.getAttribute('data-rating'));
+                    selectedRating = rating;
+                    
+                    // Mettre à jour l'affichage des étoiles
+                    document.querySelectorAll('#starRating .star').forEach((s, index) => {
+                        if (index < rating) {
+                            s.classList.add('active');
+                            s.textContent = '⭐';
+                        } else {
+                            s.classList.remove('active');
+                            s.textContent = '☆';
+                        }
+                    });
+                    
+                    // Mettre à jour le texte
+                    const ratingTexts = [
+                        'Médiocre',
+                        'Passable', 
+                        'Bien',
+                        'Très bien',
+                        'Excellent'
+                    ];
+                    document.getElementById('ratingText').textContent = ratingTexts[rating - 1];
+                    document.getElementById('submitRating').disabled = false;
+                });
+            });
+            
+            // Soumission de la note
+            document.getElementById('submitRating').addEventListener('click', function() {
+                if (selectedRating === 0) return;
+                
+                fetch(`/noter_livreur/${currentRatingOrderId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ note: selectedRating })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(data.message, 'success');
+                        
+                        // Fermer le modal
+                        const ratingModal = bootstrap.Modal.getInstance(document.getElementById('ratingModal'));
+                        ratingModal.hide();
+                        
+                        // Mettre à jour l'affichage de la commande
+                        const orderElement = document.getElementById(`order-${currentRatingOrderId}`);
+                        if (orderElement) {
+                            const ratingHtml = `
+                                <br>Votre note: 
+                                <span class="text-warning">
+                                    ${'⭐'.repeat(selectedRating)}${'☆'.repeat(5-selectedRating)}
+                                    (${selectedRating}/5)
+                                </span>
+                            `;
+                            const smallElement = orderElement.querySelector('small.text-muted');
+                            if (smallElement) {
+                                // Supprimer l'ancienne note si elle existe
+                                const existingRating = smallElement.querySelector('.text-warning');
+                                if (existingRating) {
+                                    existingRating.remove();
+                                }
+                                smallElement.innerHTML += ratingHtml;
+                            }
+                            
+                            // Supprimer le bouton de notation
+                            const ratingButton = orderElement.querySelector('button[onclick^="noterLivreur"]');
+                            if (ratingButton) {
+                                ratingButton.remove();
+                            }
+                        }
+                    } else {
+                        showNotification('❌ Erreur: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showNotification('❌ Erreur de connexion', 'danger');
+                    console.error('Erreur:', error);
+                });
+            });
+        });
+        
+        // Connexion aux événements temps réel
+        function connectToEvents() {
+            eventSource = new EventSource('/events');
+            
+            eventSource.onopen = function() {
+                document.getElementById('connectionStatus').textContent = '🟢 Connecté';
+                document.getElementById('connectionStatus').className = 'navbar-text me-3 text-success';
+            };
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('Événement reçu:', data);
+                
+                switch(data.type) {
+                    case 'order_ready':
+                        showNotification(`🏪 Commande #${data.data.order_id} est prête!`, 'info');
+                        break;
+                    case 'driver_assigned':
+                        showNotification(`🚴 Livreur assigné à la commande #${data.data.order_id}`, 'info');
+                        updateOrderStatus(data.data.order_id, 'assigned');
+                        break;
+                    case 'auto_assignment':
+                        showNotification(`🤖 Livreur automatiquement assigné à la commande #${data.data.order_id}`, 'info');
+                        updateOrderStatus(data.data.order_id, 'assigned');
+                        break;
+                    case 'order_delivered':
+                        showNotification(`✅ Commande #${data.data.order_id} livrée! Vous pouvez noter le livreur.`, 'success');
+                        updateOrderStatus(data.data.order_id, 'delivered');
+                        break;
+                    case 'order_cancelled':
+                        if (data.data.client === '{{ username }}') {
+                            showNotification(`❌ Votre commande #${data.data.order_id} a été annulée`, 'warning');
+                            updateOrderStatus(data.data.order_id, 'cancelled');
+                        }
+                        break;
+                    case 'driver_rated':
+                        if (data.data.client === '{{ username }}') {
+                            showNotification(`⭐ Merci d'avoir noté ${data.data.driver_id}!`, 'success');
+                        }
+                        break;
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                document.getElementById('connectionStatus').textContent = '🔴 Déconnecté';
+                document.getElementById('connectionStatus').className = 'navbar-text me-3 text-danger';
+                
+                console.log('Erreur SSE, reconnexion...');
+                setTimeout(connectToEvents, 5000);
+            };
+        }
+        
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type} alert-dismissible fade show`;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.getElementById('notificationContainer').appendChild(notification);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+        
+        // Initialisation
+        connectToEvents();
+        
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+        
+        setInterval(() => {
+            fetch('/dashboard')
+                .then(response => response.text())
+                .then(html => {
+                    const currentOrderCount = document.querySelectorAll('#ordersList .card').length;
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const newOrderCount = doc.querySelectorAll('#ordersList .card').length;
+                    
+                    if (currentOrderCount !== newOrderCount) {
+                        location.reload();
+                    }
+                });
+        }, 120000);
+    </script>
+</body>
+</html>

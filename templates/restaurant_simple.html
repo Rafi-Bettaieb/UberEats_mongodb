@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espace Restaurant</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .notification-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 400px;
+        }
+        .order-card {
+            transition: all 0.3s;
+        }
+        .order-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .cancelled-order {
+            opacity: 0.7;
+            background-color: #f8f9fa;
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-success">
+        <div class="container">
+            <span class="navbar-brand">🍽️ Restaurant - {{ username }}</span>
+            <div class="d-flex">
+                <span class="navbar-text me-3" id="connectionStatus">🟢 Connecté</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Container pour les notifications -->
+    <div class="notification-container" id="notificationContainer"></div>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="mb-0">📋 Commandes à Préparer</h4>
+                            <small class="text-muted">Marquez les commandes comme prêtes lorsqu'elles sont préparées</small>
+                        </div>
+                        <span class="badge bg-primary" id="ordersCount">{{ orders|length }} commande(s)</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="ordersList">
+                            {% for order in orders %}
+                            <div class="card order-card mb-3 
+                                {% if order.status == 'pending' %}border-warning pulse{% endif %}
+                                {% if order.status == 'cancelled' %}cancelled-order{% endif %}" 
+                                id="order-{{ order.id }}">
+                                
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div class="flex-grow-1">
+                                            <h5>Commande #{{ order.id }}</h5>
+                                            <p class="mb-1"><strong>{{ order.articles }}</strong></p>
+                                            <small class="text-muted">Client: {{ order.client }}</small>
+                                            
+                                            {% if order.status == 'ready' %}
+                                            <div class="mt-2">
+                                                {% set candidates_count = get_candidates_count(order.id) %}
+                                                {% if candidates_count > 0 %}
+                                                    <span class="badge bg-success">
+                                                        {{ candidates_count }} livreur(s) intéressé(s)
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-warning">En attente des livreurs...</span>
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="text-end">
+                                            <span class="badge 
+                                                {% if order.status == 'pending' %}bg-warning
+                                                {% elif order.status == 'ready' %}bg-success
+                                                {% elif order.status == 'assigned' %}bg-info
+                                                {% elif order.status == 'delivered' %}bg-primary
+                                                {% elif order.status == 'cancelled' %}bg-danger
+                                                {% else %}bg-dark{% endif %} mb-2">
+                                                {{ order.status }}
+                                            </span>
+                                            <br>
+                                            {% if order.assigned_driver %}
+                                            <small class="text-muted">Livreur: {{ order.assigned_driver }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Actions -->
+                                    <div class="mt-3">
+                                        {% if order.status == 'pending' %}
+                                        <button class="btn btn-success btn-sm" 
+                                                onclick="marquerPrete('{{ order.id }}')"
+                                                id="btn-ready-{{ order.id }}">
+                                            ✅ Marquer comme prête
+                                        </button>
+                                        <small class="text-muted ms-2">
+                                            Les livreurs auront 60s pour montrer leur intérêt
+                                        </small>
+                                        {% elif order.status == 'ready' %}
+                                        <div class="d-flex align-items-center">
+                                            <span class="badge bg-info me-2">🕒 En cours de livraison</span>
+                                            <small class="text-muted">
+                                                {% set timer_data = get_timer_data(order.id) %}
+                                                {% if timer_data and timer_data.type == 'manager_decision' %}
+                                                Le manager choisit un livreur...
+                                                {% else %}
+                                                En attente des livreurs...
+                                                {% endif %}
+                                            </small>
+                                        </div>
+                                        {% elif order.status == 'cancelled' %}
+                                        <small class="text-danger">❌ Commande annulée par le client</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-center text-muted py-5">
+                                <h5>📭 Aucune commande en attente</h5>
+                                <p>Les commandes des clients apparaîtront ici</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistiques -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6>📊 Statistiques du Restaurant</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="border rounded p-3">
+                                    <h4 id="totalOrders">{{ orders|length }}</h4>
+                                    <small>Total commandes</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-3">
+                                    <h4 id="readyOrders">{{ orders|selectattr('status', 'equalto', 'ready')|list|length }}</h4>
+                                    <small>Prêtes</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-3">
+                                    <h4 id="deliveredOrders">{{ orders|selectattr('status', 'equalto', 'delivered')|list|length }}</h4>
+                                    <small>Livrées</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        
+        function marquerPrete(orderId) {
+            if (!confirm(`Marquer la commande #${orderId} comme prête ?\n\nLes livreurs auront 60 secondes pour montrer leur intérêt.`)) {
+                return;
+            }
+            
+            fetch(`/marquer_prete/${orderId}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(`✅ Commande #${orderId} marquée comme prête!`, 'success');
+                        updateOrderStatus(orderId, 'ready');
+                    } else {
+                        showNotification('❌ Erreur: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showNotification('❌ Erreur de connexion', 'danger');
+                    console.error('Erreur:', error);
+                });
+        }
+        
+        function updateOrderStatus(orderId, newStatus) {
+            const orderElement = document.getElementById(`order-${orderId}`);
+            if (!orderElement) return;
+            
+            // Mettre à jour le badge de statut
+            const statusBadge = orderElement.querySelector('.badge');
+            if (statusBadge) {
+                statusBadge.textContent = newStatus;
+                statusBadge.className = 'badge ' + (
+                    newStatus === 'pending' ? 'bg-warning' :
+                    newStatus === 'ready' ? 'bg-success' :
+                    newStatus === 'assigned' ? 'bg-info' :
+                    newStatus === 'delivered' ? 'bg-primary' :
+                    newStatus === 'cancelled' ? 'bg-danger' : 'bg-dark'
+                ) + ' mb-2';
+            }
+            
+            // Mettre à jour les actions
+            const actionDiv = orderElement.querySelector('.mt-3');
+            if (actionDiv) {
+                if (newStatus === 'ready') {
+                    actionDiv.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-info me-2">🕒 En cours de livraison</span>
+                            <small class="text-muted">En attente des livreurs...</small>
+                        </div>
+                    `;
+                    orderElement.classList.remove('pulse');
+                    orderElement.classList.add('border-success');
+                } else if (newStatus === 'assigned') {
+                    actionDiv.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-success me-2">🚴 Livreur assigné</span>
+                            <small class="text-muted">En cours de livraison...</small>
+                        </div>
+                    `;
+                } else if (newStatus === 'delivered') {
+                    actionDiv.innerHTML = `
+                        <small class="text-success">✅ Commande livrée avec succès</small>
+                    `;
+                } else if (newStatus === 'cancelled') {
+                    actionDiv.innerHTML = `
+                        <small class="text-danger">❌ Commande annulée par le client</small>
+                    `;
+                    orderElement.classList.add('cancelled-order');
+                }
+            }
+            
+            // Mettre à jour les statistiques
+            updateStatistics();
+        }
+        
+        function updateStatistics() {
+            // Cette fonction serait plus précise avec un appel API
+            // Pour l'instant, on rafraîchit la page pour avoir les vraies stats
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        }
+        
+        // Connexion aux événements temps réel
+        function connectToEvents() {
+            eventSource = new EventSource('/events');
+            
+            eventSource.onopen = function() {
+                document.getElementById('connectionStatus').textContent = '🟢 Connecté';
+                document.getElementById('connectionStatus').className = 'navbar-text me-3 text-success';
+            };
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('Événement reçu:', data);
+                
+                switch(data.type) {
+                    case 'order_created':
+                        showNotification(`🆕 Nouvelle commande #${data.data.order_id}`, 'info');
+                        setTimeout(() => location.reload(), 1000);
+                        break;
+                    case 'driver_interest':
+                        showNotification(`📬 Livreur intéressé: ${data.data.driver_id} pour #${data.data.order_id}`, 'info');
+                        updateCandidateCount(data.data.order_id, 1);
+                        break;
+                    case 'manager_decision_started':
+                        showNotification(`⏰ Décision manager pour #${data.data.order_id}`, 'warning');
+                        break;
+                    case 'driver_assigned':
+                        showNotification(`🚴 Livreur ${data.data.driver_id} assigné à #${data.data.order_id}`, 'success');
+                        updateOrderStatus(data.data.order_id, 'assigned');
+                        break;
+                    case 'auto_assignment':
+                        showNotification(`🤖 Attribution auto: ${data.data.driver_id} pour #${data.data.order_id}`, 'info');
+                        updateOrderStatus(data.data.order_id, 'assigned');
+                        break;
+                    case 'order_delivered':
+                        showNotification(`✅ Commande #${data.data.order_id} livrée!`, 'success');
+                        updateOrderStatus(data.data.order_id, 'delivered');
+                        break;
+                    case 'order_cancelled':
+                        showNotification(`❌ Commande #${data.data.order_id} annulée`, 'warning');
+                        updateOrderStatus(data.data.order_id, 'cancelled');
+                        break;
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                document.getElementById('connectionStatus').textContent = '🔴 Déconnecté';
+                document.getElementById('connectionStatus').className = 'navbar-text me-3 text-danger';
+                
+                console.log('Erreur SSE, reconnexion...');
+                setTimeout(connectToEvents, 5000);
+            };
+        }
+        
+        function updateCandidateCount(orderId, increment = 1) {
+            const orderElement = document.getElementById(`order-${orderId}`);
+            if (orderElement) {
+                const candidateBadge = orderElement.querySelector('.badge.bg-success');
+                if (candidateBadge) {
+                    const currentCount = parseInt(candidateBadge.textContent) || 0;
+                    candidateBadge.textContent = (currentCount + increment) + ' livreur(s) intéressé(s)';
+                } else {
+                    // Créer le badge si il n'existe pas
+                    const actionDiv = orderElement.querySelector('.mt-2');
+                    if (actionDiv) {
+                        actionDiv.innerHTML = `
+                            <span class="badge bg-success">${increment} livreur(s) intéressé(s)</span>
+                        `;
+                    }
+                }
+            }
+        }
+        
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type} alert-dismissible fade show`;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.getElementById('notificationContainer').appendChild(notification);
+            
+            // Auto-supprimer après 5 secondes
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+        
+        // Initialisation
+        connectToEvents();
+        
+        // Nettoyer à la fermeture de la page
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+        
+        // Rafraîchissement automatique toutes les 30 secondes pour synchronisation
+        setInterval(() => {
+            location.reload();
+        }, 30000);
+    </script>
+</body>
+</html>
