@@ -1,0 +1,4 @@
+utilisateur_username,nom,longitude,latitude
+restaurant1,La Bonne Fourchette,2.333,48.865
+restaurant2,Le Burger d'Or,4.835,45.764
+restaurant3,Sushi Zen,5.369,43.296

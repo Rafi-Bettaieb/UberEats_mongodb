@@ -53,10 +53,8 @@
         </div>
     </nav>
 
-    <!-- Container pour les notifications -->
     <div class="notification-container" id="notificationContainer"></div>
 
-    <!-- Modal pour entrer les coordonnées -->
     <div class="modal fade" id="positionModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -81,9 +79,9 @@
                     <div class="alert alert-info">
                         <small>
                             💡 <strong>Coordonnées de test:</strong><br>
-                            • Paris: 2.333, 48.865<br>
-                            • Lyon: 4.835, 45.764<br>
-                            • Marseille: 5.369, 43.296
+                            • Paris (Resto 1): 2.333, 48.865<br>
+                            • Lyon (Resto 2): 4.835, 45.764<br>
+                            • Marseille (Resto 3): 5.369, 43.296
                         </small>
                     </div>
                 </div>
@@ -98,7 +96,6 @@
     <div class="container mt-4">
         <div class="row">
             <div class="col-md-6">
-                <!-- Carte de position -->
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">📍 Ma Position</h5>
@@ -133,7 +130,7 @@
                                 <div class="card-body">
                                     <h6>Commande #{{ order.id }}</h6>
                                     <p class="mb-1">{{ order.articles }}</p>
-                                    <small class="text-muted">Restaurant: {{ order.restaurant }}</small>
+                                    <small class="text-muted">Restaurant: {{ order.restaurant_name | default(order.restaurant) }}</small>
                                     <br>
                                     <small class="text-muted">Client: {{ order.client }}</small>
                                     <div class="mt-2">
@@ -167,6 +164,8 @@
                                 <div class="card-body">
                                     <h6>Commande #{{ order.id }}</h6>
                                     <p class="mb-1">{{ order.articles }}</p>
+                                    <small class="text-muted">{{ order.restaurant_name | default(order.restaurant) }}</small>
+                                    <br>
                                     <span class="badge bg-info">⏳ En attente du manager</span>
                                 </div>
                             </div>
@@ -188,6 +187,8 @@
                                 <div class="card-body">
                                     <h6>Commande #{{ order.id }}</h6>
                                     <p class="mb-1">{{ order.articles }}</p>
+                                    <small class="text-muted">{{ order.restaurant_name | default(order.restaurant) }}</small>
+                                    <br>
                                     <small class="text-muted">Client: {{ order.client }}</small>
                                     <div class="mt-2">
                                         <button class="btn btn-primary btn-sm" 
@@ -204,7 +205,6 @@
                     </div>
                 </div>
 
-                <!-- Statistiques du livreur -->
                 <div class="card mt-4 stats-card">
                     <div class="card-header">
                         <h5 class="mb-0">⭐ Mes Statistiques</h5>
@@ -241,7 +241,6 @@
         </div>
     </div>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
@@ -355,9 +354,15 @@
                         orderTimers[orderId] = data.time_left;
                         updateTimer(orderId);
                     } else if (data.status === 'expired') {
-                        document.getElementById(`timer-${orderId}`).textContent = 'Terminé';
-                        document.getElementById(`timer-${orderId}`).className = 'badge bg-secondary ms-2';
-                        document.getElementById(`btn-interest-${orderId}`).disabled = true;
+                        const timerElement = document.getElementById(`timer-${orderId}`);
+                        if (timerElement) {
+                            timerElement.textContent = 'Terminé';
+                            timerElement.className = 'badge bg-secondary ms-2';
+                        }
+                        const btnElement = document.getElementById(`btn-interest-${orderId}`);
+                        if (btnElement) {
+                            btnElement.disabled = true;
+                        }
                     }
                 })
                 .catch(error => {
@@ -386,16 +391,11 @@
             } else {
                 timerElement.textContent = 'Terminé';
                 timerElement.className = 'badge bg-secondary ms-2';
-                document.getElementById(`btn-interest-${orderId}`).disabled = true;
-                
-                fetch(`/get_timer_status/${orderId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'expired') {
-                            document.getElementById(`btn-interest-${orderId}`).disabled = true;
-                            document.getElementById(`btn-interest-${orderId}`).textContent = 'Temps écoulé';
-                        }
-                    });
+                const btnElement = document.getElementById(`btn-interest-${orderId}`);
+                if (btnElement) {
+                    btnElement.disabled = true;
+                    btnElement.textContent = 'Temps écoulé';
+                }
             }
         }
 
@@ -437,6 +437,8 @@
                         <div class="card-body">
                             <h6>Commande #${orderId}</h6>
                             <p class="mb-1">${orderData.articles}</p>
+                            <small class="text-muted">${orderData.restaurant}</small>
+                            <br>
                             <span class="badge bg-info">⏳ En attente du manager</span>
                         </div>
                     </div>
@@ -531,9 +533,6 @@
                     case 'auto_assignment':
                         handleAssignment(data.data);
                         break;
-                    case 'order_created':
-                        showNotification(`📦 Nouvelle commande #${data.data.order_id} créée`, 'info');
-                        break;
                     case 'driver_rated':
                         if (data.data.driver_id === '{{ username }}') {
                             showNotification(`⭐ Nouvelle note: ${data.data.rating}/5 de ${data.data.client}`, 'success');
@@ -546,10 +545,10 @@
                         if (interestElement) {
                             interestElement.remove();
                         }
-                        break;
-                    case 'position_updated':
-                        if (data.data.driver_id === '{{ username }}') {
-                            loadPosition();
+                        const availableElement = document.getElementById(`available-order-${data.data.order_id}`);
+                        if (availableElement) {
+                            availableElement.remove();
+                            updateAvailableCount(-1);
                         }
                         break;
                 }
@@ -564,25 +563,29 @@
             };
         }
 
+        // === MODIFIÉ: Utiliser les données de l'événement ===
         function handleNewOrder(data) {
-            showNotification(`🆕 Nouvelle commande disponible #${data.order_id}`, 'success');
+            const order_data = data.order_data;
+            if (!order_data) return;
             
-            if (!document.getElementById(`available-order-${data.order_id}`)) {
+            showNotification(`🆕 Nouvelle commande disponible #${order_data.id} (${order_data.restaurant_name})`, 'success');
+            
+            if (!document.getElementById(`available-order-${order_data.id}`)) {
                 const newOrderHtml = `
-                    <div class="card order-card mb-3" id="available-order-${data.order_id}">
+                    <div class="card order-card mb-3" id="available-order-${order_data.id}">
                         <div class="card-body">
-                            <h6>Commande #${data.order_id}</h6>
-                            <p class="mb-1">1x Pizza, 1x Boisson</p>
-                            <small class="text-muted">Restaurant: La Bonne Fourchette</small>
+                            <h6>Commande #${order_data.id}</h6>
+                            <p class="mb-1">${order_data.articles}</p>
+                            <small class="text-muted">Restaurant: ${order_data.restaurant_name}</small>
                             <br>
-                            <small class="text-muted">Client: client_${Math.floor(Math.random() * 100)}</small>
+                            <small class="text-muted">Client: ${order_data.client}</small>
                             <div class="mt-2">
                                 <button class="btn btn-success btn-sm" 
-                                        onclick="montrerInteret('${data.order_id}')"
-                                        id="btn-interest-${data.order_id}">
+                                        onclick="montrerInteret('${order_data.id}')"
+                                        id="btn-interest-${order_data.id}">
                                     ✅ Montrer mon intérêt
                                 </button>
-                                <span class="badge bg-warning ms-2" id="timer-${data.order_id}">60s</span>
+                                <span class="badge bg-warning ms-2" id="timer-${order_data.id}">60s</span>
                             </div>
                         </div>
                     </div>
@@ -591,37 +594,43 @@
                 document.getElementById('availableOrders').insertAdjacentHTML('afterbegin', newOrderHtml);
                 updateAvailableCount(1);
                 
-                orderTimers[data.order_id] = 60;
-                startTimer(data.order_id);
+                orderTimers[order_data.id] = 60;
+                startTimer(order_data.id);
             }
         }
+        // ==============================================
 
         function handleAssignment(data) {
+            // Si j'ai été assigné
             if (data.driver_id === '{{ username }}') {
                 showNotification(`🎉 Vous avez été assigné à la commande #${data.order_id}`, 'success');
                 
+                // Retirer de "Mes Intérêts"
                 const interestElement = document.getElementById(`interest-${data.order_id}`);
                 if (interestElement) {
                     interestElement.remove();
                 }
                 
-                const assignedHtml = `
-                    <div class="card mb-2" id="assigned-${data.order_id}">
-                        <div class="card-body">
-                            <h6>Commande #${data.order_id}</h6>
-                            <p class="mb-1">1x Pizza, 1x Boisson</p>
-                            <small class="text-muted">Client: client_${Math.floor(Math.random() * 100)}</small>
-                            <div class="mt-2">
-                                <button class="btn btn-primary btn-sm" 
-                                        onclick="marquerLivree('${data.order_id}')">
-                                    ✅ Marquer comme livrée
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                // Retirer de "Disponibles" (au cas où)
+                const availableElement = document.getElementById(`available-order-${data.order_id}`);
+                if (availableElement) {
+                    availableElement.remove();
+                    updateAvailableCount(-1);
+                }
                 
-                document.getElementById('assignedOrders').insertAdjacentHTML('afterbegin', assignedHtml);
+                // Recharger la page pour voir la commande dans "Mes Livraisons"
+                // C'est plus simple que de recréer l'élément
+                setTimeout(() => location.reload(), 1000);
+
+            } 
+            // Si un autre livreur a été assigné
+            else {
+                // Retirer de "Mes Intérêts"
+                const interestElement = document.getElementById(`interest-${data.order_id}`);
+                if (interestElement) {
+                    showNotification(`🙁 Commande #${data.order_id} assignée à un autre livreur`, 'warning');
+                    interestElement.remove();
+                }
             }
         }
 
@@ -653,9 +662,6 @@
             }
         });
 
-        setInterval(() => {
-            location.reload();
-        }, 120000);
     </script>
 </body>
 </html>
