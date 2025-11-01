@@ -16,7 +16,7 @@ app.secret_key = 'votre_cle_secrete'
 # --- Connexion MongoDB ---
 try:
     # Utilisation d'une variable d'environnement pour l'URI, sinon fallback
-    MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://rafiibettaieb004:3gFC65o82k4DppKb@cluster0.1drqg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
+    MONGO_URI = os.environ.get('MONGO_URI', 'write your mongo_uri')
     client = MongoClient(MONGO_URI)
     db = client['delivery_db'] # Nom de la base de données
 
