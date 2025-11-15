@@ -108,15 +108,18 @@ données hébergées sur Atlas.
 L'application se connecte automatiquement à MongoDB Atlas. Pour tester manuellement :
 
 from pymongo import MongoClient
+
 from pymongo.errors import ConnectionFailure
+
 MONGO_URI = "mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/"
+
 try:
+
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     
     client.server_info()
     
     print("Connexion a MongoDB reussie !")
-
 except ConnectionFailure as e:
 
     print("ECHEC de la connexion.")
