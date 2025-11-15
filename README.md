@@ -46,7 +46,7 @@ source venv/bin/activate
 ### 3. Installer les dépendances
 pip install -r requirements.txt
 
-### 4. Configuration MongoDB Atlas (Cloud)
+### 4. Configuration MongoDB Atlas
 
 Pour ce POC, une approche cloud-native a été privilégiée en utilisant MongoDB Atlas,
 la version "Database-as-a-Service" (DBaaS) de MongoDB. La configuration du cluster a
@@ -88,7 +88,7 @@ Une fois l'utilisateur créé et l'IP autorisée, la chaîne de connexion (URI) 
 cliquant sur "Connect" → "Connect with MongoDB Compass". L'URI (mongodb+srv://...)
 a été copié.
 
-#### 4.8 Installation de MongoDB Compass (Optionnel)
+#### 4.8 Installation de MongoDB Compass 
 L'interface graphique MongoDB Compass peut être installée localement pour interagir avec le cluster Atlas.
 
 Sur Ubuntu/Debian :
@@ -108,13 +108,21 @@ données hébergées sur Atlas.
 L'application se connecte automatiquement à MongoDB Atlas. Pour tester manuellement :
 
 from pymongo import MongoClient
+
 from pymongo.errors import ConnectionFailure
+
 MONGO_URI = "mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/"
+
 try:
+
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    
     client.server_info()
+    
     print("Connexion a MongoDB reussie !")
+
 except ConnectionFailure as e:
+
     print("ECHEC de la connexion.")
 
 ## Démarrage de l'Application
