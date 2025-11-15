@@ -16,7 +16,7 @@ app.secret_key = 'votre_cle_secrete'
 # --- Connexion MongoDB ---
 try:
     # Utilisation d'une variable d'environnement pour l'URI, sinon fallback
-    MONGO_URI = os.environ.get('MONGO_URI', 'write your mongo_uri')
+    MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://rafiibettaieb004:3gFC65o82k4DppKb@cluster0.1drqg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
     client = MongoClient(MONGO_URI)
     db = client['delivery_db'] # Nom de la base de données
 
@@ -44,7 +44,7 @@ except Exception as e:
 def init_test_users():
     try:
         # Ouvrir et lire le fichier JSON
-        with open('donnees_denormalisees.json', 'r', encoding='utf-8') as f:
+        with open('donnees_fusionnees_avec_menus.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
     except FileNotFoundError:
         print("ERREUR: Le fichier 'donnees_denormalisees.json' est introuvable.")
@@ -157,18 +157,19 @@ def init_test_users():
     
     print("Initialisation des données de test depuis le JSON terminée.")
     
-    # --- Création des index MongoDB ---
+   # --- Création des index MongoDB ---
     print("Création des index MongoDB...")
     users_col.create_index("role")
     orders_col.create_index("client")
     orders_col.create_index("status")
     orders_col.create_index("assigned_driver")
-    orders_col.create_index("restaurant") # Index pour get_restaurant_orders
+    orders_col.create_index("restaurant")
     orders_col.create_index([("candidates", ASCENDING)])
-    orders_col.create_index([("created_at", DESCENDING)]) # Index pour trier
+    orders_col.create_index([("created_at", DESCENDING)])
     stats_col.create_index([("avg_rating", DESCENDING)])
     positions_col.create_index([("location", GEOSPHERE)])
-    restaurants_col.create_index([("location", GEOSPHERE)]) # Index pour les restaurants
+    restaurants_col.create_index([("location", GEOSPHERE)])
+    restaurants_col.create_index([("name", "text")])  # NOUVEL INDEX pour la recherche
     print("Index créés.")
 # =========================================================
 
@@ -291,6 +292,62 @@ def get_restaurants():
     
     return jsonify({'status': 'success', 'restaurants': restaurants})
 # ========================================================
+
+# === NOUVELLE ROUTE: Obtenir les restaurants paginés avec recherche ===
+@app.route('/get_restaurants_paginated')
+def get_restaurants_paginated():
+    if 'username' not in session:
+        return jsonify({'status': 'error', 'message': 'Non autorisé'}), 401
+    
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 10))
+        search_term = request.args.get('search', '').strip()
+        
+        # Construire la requête de recherche
+        query = {}
+        if search_term:
+            # Recherche insensible à la casse dans le nom du restaurant
+            query["name"] = {"$regex": search_term, "$options": "i"}
+        
+        # Compter le nombre total de restaurants (avec filtre si recherche)
+        total_restaurants = restaurants_col.count_documents(query)
+        
+        # Calculer le skip pour la pagination
+        skip = (page - 1) * per_page
+        
+        # Récupérer les restaurants paginés
+        restaurants_cursor = restaurants_col.find(
+            query, 
+            {"_id": 1, "name": 1}
+        ).skip(skip).limit(per_page)
+        
+        # Reformater pour le frontend
+        restaurants = [
+            {"id": resto["_id"], "name": resto.get("name", resto["_id"])} 
+            for resto in restaurants_cursor
+        ]
+        
+        # Calculer la pagination
+        total_pages = (total_restaurants + per_page - 1) // per_page if total_restaurants > 0 else 1
+        
+        return jsonify({
+            'status': 'success', 
+            'restaurants': restaurants,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total_restaurants': total_restaurants,
+                'total_pages': total_pages,
+                'has_next': page < total_pages,
+                'has_prev': page > 1
+            },
+            'search_term': search_term
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+# ========================================================
+
 
 # === NOUVELLE ROUTE: Obtenir le menu d'un restaurant ===
 @app.route('/get_menu/<restaurant_id>')

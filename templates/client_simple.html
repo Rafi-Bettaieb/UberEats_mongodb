@@ -10,7 +10,7 @@
             position: fixed;
             top: 80px;
             right: 20px;
-            z-index: 1050; /* Au-dessus du modal */
+            z-index: 1050;
         }
         .cancelled-order {
             opacity: 0.7;
@@ -35,12 +35,17 @@
         .star-rating .star.active {
             color: #ffc107;
         }
-        /* Style pour le modal de commande */
         .step {
             display: none;
         }
         .step.active {
             display: block;
+        }
+        .restaurant-item:hover {
+            background-color: #f8f9fa;
+        }
+        .pagination-container {
+            margin-top: 1rem;
         }
     </style>
 </head>
@@ -57,6 +62,7 @@
 
     <div class="notification-container" id="notificationContainer"></div>
 
+    <!-- Order Modal -->
     <div class="modal fade" id="orderModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -67,13 +73,35 @@
                 <div class="modal-body">
                     <div class="step active" id="step1">
                         <h6>Étape 1: Choisissez un restaurant</h6>
+                        
+                        <!-- Search Bar -->
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="restaurantSearch" 
+                                   placeholder="Rechercher un restaurant..." onkeyup="filterRestaurants()">
+                        </div>
+                        
                         <div id="restaurantListSpinner" class="text-center">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Chargement...</span>
                             </div>
                         </div>
-                        <div id="restaurantListContainer">
-                            </div>
+                        
+                        <div id="restaurantListContainer"></div>
+                        
+                        <!-- Pagination Controls -->
+                        <nav id="paginationControls" class="pagination-container" style="display: none;">
+                            <ul class="pagination justify-content-center">
+                                <li class="page-item">
+                                    <button class="page-link" id="prevPage">Précédent</button>
+                                </li>
+                                <li class="page-item">
+                                    <span class="page-link text-muted" id="pageInfo">Page 1</span>
+                                </li>
+                                <li class="page-item">
+                                    <button class="page-link" id="nextPage">Suivant</button>
+                                </li>
+                            </ul>
+                        </nav>
                     </div>
 
                     <div class="step" id="step2">
@@ -83,16 +111,14 @@
                                 <span class="visually-hidden">Chargement...</span>
                             </div>
                         </div>
-                        <div id="menuListContainer">
-                            </div>
+                        <div id="menuListContainer"></div>
                     </div>
 
                     <div class="step" id="step3">
                         <h6>Étape 3: Récapitulatif</h6>
                         <p><strong>Restaurant:</strong> <span id="summaryRestaurant"></span></p>
                         <strong>Articles:</strong>
-                        <ul id="summaryItems" class="list-group list-group-flush mb-3">
-                            </ul>
+                        <ul id="summaryItems" class="list-group list-group-flush mb-3"></ul>
                         <h5 class="text-end">Total: <span id="summaryTotal" class="text-success">0.00 €</span></h5>
                     </div>
                 </div>
@@ -106,6 +132,8 @@
             </div>
         </div>
     </div>
+
+    <!-- Rating Modal -->
     <div class="modal fade" id="ratingModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -136,6 +164,7 @@
         </div>
     </div>
 
+    <!-- Main Content -->
     <div class="container mt-4">
         <div class="row">
             <div class="col-md-8 mx-auto">
@@ -275,39 +304,50 @@
         let currentRatingDriverId = null;
         let selectedRating = 0;
         
-        // === NOUVEAU: Logique pour le modal de commande ===
+        // Order modal variables
         let orderModal = null;
         let currentStep = 1;
         let selectedRestaurant = { id: null, name: null };
         let selectedMenu = {};
         let cart = {};
+        
+        // Pagination variables
+        let currentPage = 1;
+        let allRestaurants = [];
+        let filteredRestaurants = [];
+        let isSearching = false;
 
         document.addEventListener('DOMContentLoaded', function() {
             orderModal = new bootstrap.Modal(document.getElementById('orderModal'));
 
-            // Gérer l'ouverture du modal
+            // Handle modal opening
             document.getElementById('orderModal').addEventListener('show.bs.modal', function () {
                 resetOrderModal();
-                loadRestaurants();
+                loadRestaurants(1);
             });
 
-            // Gérer les boutons de navigation du modal
+            // Handle modal navigation buttons
             document.getElementById('btnNext').addEventListener('click', nextStep);
             document.getElementById('btnPrev').addEventListener('click', prevStep);
             
-            // Gérer la soumission de la commande
+            // Handle order submission
             document.getElementById('btnSubmitOrder').addEventListener('click', submitOrder);
             
-            // Initialiser le reste (notation, SSE)
+            // Initialize rating system and SSE
             initRatingSystem();
             connectToEvents();
         });
 
         function resetOrderModal() {
             currentStep = 1;
+            currentPage = 1;
             selectedRestaurant = { id: null, name: null };
             selectedMenu = {};
             cart = {};
+            isSearching = false;
+            
+            // Reset search
+            document.getElementById('restaurantSearch').value = '';
             
             document.getElementById('step1').classList.add('active');
             document.getElementById('step2').classList.remove('active');
@@ -320,40 +360,120 @@
             
             document.getElementById('restaurantListContainer').innerHTML = '';
             document.getElementById('menuListContainer').innerHTML = '';
+            document.getElementById('paginationControls').style.display = 'none';
         }
 
-        function loadRestaurants() {
+        function loadRestaurants(page = 1) {
+            currentPage = page;
             document.getElementById('restaurantListSpinner').style.display = 'block';
-            fetch('/get_restaurants')
+            document.getElementById('restaurantListContainer').innerHTML = '';
+            document.getElementById('paginationControls').style.display = 'none';
+            
+            fetch(`/get_restaurants_paginated?page=${page}&per_page=10`)
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('restaurantListSpinner').style.display = 'none';
+                    
                     if (data.status === 'success') {
-                        const container = document.getElementById('restaurantListContainer');
-                        container.innerHTML = '<div class="list-group"></div>';
-                        data.restaurants.forEach(resto => {
-                            // ▼▼▼ CORRECTION 1 : Ajout de .replace(/'/g, "\\'") ▼▼▼
-                            container.firstElementChild.innerHTML += `
-                                <a href="#" class="list-group-item list-group-item-action" 
-                                   data-id="${resto.id}" data-name="${resto.name}"
-                                   onclick="selectRestaurant(this, '${resto.id}', '${resto.name.replace(/'/g, "\\'")}')">
-                                    ${resto.name}
-                                </a>
-                            `;
-                        });
+                        displayRestaurants(data.restaurants);
+                        updatePaginationControls(data.pagination);
                     } else {
-                        container.innerHTML = '<div class="alert alert-danger">Impossible de charger les restaurants.</div>';
+                        showRestaurantError('Impossible de charger les restaurants.');
                     }
                 })
                 .catch(err => {
                     document.getElementById('restaurantListSpinner').style.display = 'none';
-                    document.getElementById('restaurantListContainer').innerHTML = '<div class="alert alert-danger">Erreur de connexion.</div>';
+                    showRestaurantError('Erreur de connexion.');
+                });
+        }
+
+        function displayRestaurants(restaurants) {
+            const container = document.getElementById('restaurantListContainer');
+            
+            if (restaurants.length === 0) {
+                container.innerHTML = '<div class="alert alert-info">Aucun restaurant trouvé.</div>';
+                return;
+            }
+            
+            container.innerHTML = '<div class="list-group"></div>';
+            restaurants.forEach(resto => {
+                container.firstElementChild.innerHTML += `
+                    <a href="#" class="list-group-item list-group-item-action restaurant-item" 
+                       data-id="${resto.id}" data-name="${resto.name}"
+                       onclick="selectRestaurant(this, '${resto.id}', '${resto.name.replace(/'/g, "\\'")}')">
+                        ${resto.name}
+                    </a>
+                `;
+            });
+        }
+
+        function updatePaginationControls(pagination) {
+            const controls = document.getElementById('paginationControls');
+            const prevBtn = document.getElementById('prevPage');
+            const nextBtn = document.getElementById('nextPage');
+            const pageInfo = document.getElementById('pageInfo');
+            
+            pageInfo.textContent = `Page ${pagination.page} / ${pagination.total_pages}`;
+            
+            prevBtn.disabled = !pagination.has_prev;
+            nextBtn.disabled = !pagination.has_next;
+            
+            prevBtn.onclick = () => pagination.has_prev && loadRestaurants(pagination.page - 1);
+            nextBtn.onclick = () => pagination.has_next && loadRestaurants(pagination.page + 1);
+            
+            controls.style.display = 'block';
+        }
+
+        function showRestaurantError(message) {
+            document.getElementById('restaurantListContainer').innerHTML = 
+                `<div class="alert alert-danger">${message}</div>`;
+        }
+
+        function filterRestaurants() {
+            const searchTerm = document.getElementById('restaurantSearch').value.toLowerCase();
+            
+            if (searchTerm.length === 0) {
+                // If no search term, reload paginated data
+                isSearching = false;
+                loadRestaurants(currentPage);
+                return;
+            }
+            
+            isSearching = true;
+            document.getElementById('restaurantListSpinner').style.display = 'block';
+            document.getElementById('restaurantListContainer').innerHTML = '';
+            document.getElementById('paginationControls').style.display = 'none';
+            
+            // Load all restaurants for searching
+            fetch('/get_restaurants')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('restaurantListSpinner').style.display = 'none';
+                    
+                    if (data.status === 'success') {
+                        const filtered = data.restaurants.filter(resto => 
+                            resto.name.toLowerCase().includes(searchTerm)
+                        );
+                        
+                        if (filtered.length === 0) {
+                            document.getElementById('restaurantListContainer').innerHTML = 
+                                '<div class="alert alert-info">Aucun restaurant ne correspond à votre recherche.</div>';
+                        } else {
+                            displayRestaurants(filtered.slice(0, 20)); // Show first 20 results
+                        }
+                    } else {
+                        showRestaurantError('Impossible de charger les restaurants.');
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('restaurantListSpinner').style.display = 'none';
+                    showRestaurantError('Erreur lors de la recherche.');
                 });
         }
 
         function selectRestaurant(element, id, name) {
-            // Gérer la sélection visuelle
-            document.querySelectorAll('#restaurantListContainer .list-group-item').forEach(item => {
+            // Handle visual selection
+            document.querySelectorAll('#restaurantListContainer .restaurant-item').forEach(item => {
                 item.classList.remove('active');
             });
             element.classList.add('active');
@@ -409,7 +529,7 @@
                 delete cart[item];
             }
             
-            // Activer le bouton Suivant si au moins 1 article est sélectionné
+            // Enable Next button if at least 1 item is selected
             document.getElementById('btnNext').disabled = Object.keys(cart).length === 0;
         }
         
@@ -507,9 +627,6 @@
                 document.getElementById('btnNext').disabled = Object.keys(cart).length === 0;
             }
         }
-        // ==============================================
-        
-        // La fonction `passerCommande` originale est supprimée car remplacée par le modal
         
         function annulerCommande(orderId) {
             if (!confirm(`Êtes-vous sûr de vouloir annuler la commande #${orderId} ?`)) {
@@ -537,7 +654,7 @@
             currentRatingDriverId = driverId;
             selectedRating = 0;
             
-            // Réinitialiser les étoiles
+            // Reset stars
             document.querySelectorAll('#starRating .star').forEach(star => {
                 star.classList.remove('active');
                 star.textContent = '☆';
@@ -546,10 +663,10 @@
             document.getElementById('ratingText').textContent = 'Sélectionnez une note';
             document.getElementById('submitRating').disabled = true;
             
-            // Mettre à jour le titre du modal
+            // Update modal title
             document.getElementById('ratingModalTitle').textContent = `Noter ${driverId}`;
             
-            // Afficher le modal
+            // Show modal
             const ratingModal = new bootstrap.Modal(document.getElementById('ratingModal'));
             ratingModal.show();
         }
@@ -558,7 +675,7 @@
             const orderElement = document.getElementById(`order-${orderId}`);
             if (!orderElement) return;
             
-            // Mettre à jour le badge de statut
+            // Update status badge
             const statusBadge = orderElement.querySelector('.badge');
             if (statusBadge) {
                 statusBadge.textContent = newStatus;
@@ -571,7 +688,7 @@
                 );
             }
             
-            // Mettre à jour les actions
+            // Update actions
             const actionDiv = orderElement.querySelector('.mt-3') || orderElement.querySelector('.mt-2');
             if (actionDiv) {
                 if (newStatus === 'cancelled') {
@@ -580,21 +697,21 @@
                 } else if (newStatus === 'assigned') {
                     actionDiv.innerHTML = '<small class="text-warning">⚠️ Impossible d\'annuler: un livreur a été assigné</small>';
                 } else if (newStatus === 'delivered') {
-                    // Recharger la page pour montrer le bouton de notation
+                    // Reload page to show rating button
                     location.reload();
                 }
             }
         }
         
-        // Initialisation du système de notation
+        // Initialize rating system
         function initRatingSystem() {
-            // Gestion des clics sur les étoiles
+            // Handle star clicks
             document.querySelectorAll('#starRating .star').forEach(star => {
                 star.addEventListener('click', function() {
                     const rating = parseInt(this.getAttribute('data-rating'));
                     selectedRating = rating;
                     
-                    // Mettre à jour l'affichage des étoiles
+                    // Update star display
                     document.querySelectorAll('#starRating .star').forEach((s, index) => {
                         if (index < rating) {
                             s.classList.add('active');
@@ -605,7 +722,7 @@
                         }
                     });
                     
-                    // Mettre à jour le texte
+                    // Update text
                     const ratingTexts = [
                         'Médiocre',
                         'Passable', 
@@ -618,7 +735,7 @@
                 });
             });
             
-            // Soumission de la note
+            // Submit rating
             document.getElementById('submitRating').addEventListener('click', function() {
                 if (selectedRating === 0) return;
                 
@@ -634,11 +751,11 @@
                     if (data.status === 'success') {
                         showNotification(data.message, 'success');
                         
-                        // Fermer le modal
+                        // Close modal
                         const ratingModal = bootstrap.Modal.getInstance(document.getElementById('ratingModal'));
                         ratingModal.hide();
                         
-                        // Recharger la page pour afficher la note
+                        // Reload page to display rating
                         location.reload();
                         
                     } else {
@@ -652,7 +769,7 @@
             });
         }
         
-        // Connexion aux événements temps réel
+        // Connect to real-time events
         function connectToEvents() {
             eventSource = new EventSource('/events');
             
@@ -665,7 +782,7 @@
                 const data = JSON.parse(event.data);
                 console.log('Événement reçu:', data);
                 
-                // Ne traiter que les événements pertinents pour cet utilisateur
+                // Only process events relevant to this user
                 const myOrderElement = document.getElementById(`order-${data.data.order_id}`);
                 
                 if (myOrderElement || (data.type === 'order_created' && data.data.details.client === '{{ username }}')) {

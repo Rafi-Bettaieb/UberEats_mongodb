@@ -1,4 +1,0 @@
-utilisateur_username,avg_rating
-livreur1,4.8
-livreur2,4.3
-livreur3,4.6
