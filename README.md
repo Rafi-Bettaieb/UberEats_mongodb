@@ -22,7 +22,7 @@ Application web de livraison de nourriture développée avec Flask et MongoDB. L
 
 ## Prérequis
 - Python 3.8+
-- Redis Server
+- MongoDB atlas ou compass
 
 ## Installation
 
